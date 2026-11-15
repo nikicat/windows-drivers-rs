@@ -502,6 +502,15 @@ impl DeviceInit {
             );
         }
     }
+
+    /// Marks the device as a filter: the framework passes the requests the
+    /// driver has no queue callback for to the next driver down, and the
+    /// driver does not own power policy.
+    pub fn set_filter(&mut self) {
+        unsafe {
+            call_unsafe_wdf_function_binding!(WdfFdoInitSetFilter, self.as_ptr_mut());
+        }
+    }
 }
 
 pub struct IoTypeConfig {

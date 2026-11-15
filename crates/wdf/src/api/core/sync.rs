@@ -29,7 +29,9 @@ pub enum IRQL {
 
 impl IRQL {
     /// Returns the current processor's interrupt request level when it is a
-    /// software IRQL representable by this type.
+    /// software IRQL representable by this type. Kernel mode only: UMDF code
+    /// has no IRQL and cannot call `KeGetCurrentIrql`.
+    #[cfg(driver_model__driver_type = "KMDF")]
     pub fn current() -> Option<Self> {
         let current = unsafe { wdk_sys::ntddk::KeGetCurrentIrql() };
         Self::try_from(current).ok()

@@ -11,12 +11,14 @@ use wdk_sys::{
     WDF_REQUEST_COMPLETION_PARAMS,
     WDF_REQUEST_PARAMETERS,
     WDF_REQUEST_REUSE_PARAMS,
+    WDF_REQUEST_SEND_OPTIONS,
     WDF_REQUEST_TYPE,
     WDFCONTEXT,
     WDFIOTARGET,
     WDFMEMORY,
     WDFOBJECT,
     WDFREQUEST,
+    _WDF_REQUEST_SEND_OPTIONS_FLAGS,
     call_unsafe_wdf_function_binding,
 };
 
@@ -274,6 +276,43 @@ impl Request {
 
         if res != 0 {
             forget(self); // Suppress drop which could complete or delete the request
+            Ok(())
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Formats the request to be sent to the next driver down with the same
+    /// type and parameters it arrived with, as a filter that passes it on
+    /// does.
+    pub fn format_using_current_type(&mut self) {
+        unsafe {
+            call_unsafe_wdf_function_binding!(
+                WdfRequestFormatRequestUsingCurrentType,
+                self.as_ptr().cast()
+            );
+        }
+    }
+
+    /// Sends the request to `io_target` without a completion routine: the
+    /// driver gives up the request, and the target completes it. Format it
+    /// with [`Self::format_using_current_type`] first. On failure the
+    /// request is handed back so the caller can complete it.
+    pub fn send_and_forget(self, io_target: &IoTarget) -> Result<(), Request> {
+        let mut options = init_wdf_struct!(WDF_REQUEST_SEND_OPTIONS);
+        options.Flags =
+            _WDF_REQUEST_SEND_OPTIONS_FLAGS::WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET as u32;
+        let sent = unsafe {
+            call_unsafe_wdf_function_binding!(
+                WdfRequestSend,
+                self.as_ptr().cast(),
+                io_target.as_ptr().cast(),
+                &mut options
+            )
+        };
+
+        if sent != 0 {
+            forget(self); // The target owns the request now
             Ok(())
         } else {
             Err(self)

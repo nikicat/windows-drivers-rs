@@ -12,6 +12,7 @@ use wdk_sys::{
     WDF_REQUEST_PARAMETERS,
     WDF_REQUEST_REUSE_PARAMS,
     WDF_REQUEST_SEND_OPTIONS,
+    WDF_REQUEST_SEND_OPTIONS_FLAGS,
     WDF_REQUEST_TYPE,
     WDFCONTEXT,
     WDFIOTARGET,
@@ -299,9 +300,35 @@ impl Request {
     /// with [`Self::format_using_current_type`] first. On failure the
     /// request is handed back so the caller can complete it.
     pub fn send_and_forget(self, io_target: &IoTarget) -> Result<(), Request> {
+        if self.send(
+            io_target,
+            _WDF_REQUEST_SEND_OPTIONS_FLAGS::WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET,
+        ) {
+            forget(self); // The target owns the request now
+            Ok(())
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Sends the request to `io_target` and waits until the target is done with
+    /// it. Format it as for [`Self::send_and_forget`]. Returns the target's
+    /// status for the request, or the send's status when the send fails.
+    pub fn send_synchronously(&mut self, io_target: &IoTarget) -> NtStatus {
+        // A failed send sets the request's status too.
+        let _ = self.send(
+            io_target,
+            _WDF_REQUEST_SEND_OPTIONS_FLAGS::WDF_REQUEST_SEND_OPTION_SYNCHRONOUS,
+        );
+
+        self.get_status()
+    }
+
+    /// Sends the request to `io_target` with `flags` as its send options.
+    /// Returns false when the send fails.
+    fn send(&self, io_target: &IoTarget, flags: WDF_REQUEST_SEND_OPTIONS_FLAGS) -> bool {
         let mut options = init_wdf_struct!(WDF_REQUEST_SEND_OPTIONS);
-        options.Flags =
-            _WDF_REQUEST_SEND_OPTIONS_FLAGS::WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET as u32;
+        options.Flags = flags as u32;
         let sent = unsafe {
             call_unsafe_wdf_function_binding!(
                 WdfRequestSend,
@@ -310,13 +337,7 @@ impl Request {
                 &mut options
             )
         };
-
-        if sent != 0 {
-            forget(self); // The target owns the request now
-            Ok(())
-        } else {
-            Err(self)
-        }
+        sent != 0
     }
 
     pub fn forward_to_io_queue(self, queue: &IoQueue) -> Result<(), (NtStatusError, Request)> {
